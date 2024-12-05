@@ -153,25 +153,78 @@ fn word_from_cells(cells: Vec<&Cell>) -> String {
     word
 }
 
-fn main() {
-    let cells = get_cells();
+fn has_top_left_to_bottom_right(cell: &Cell, cells: &Cells) -> bool {
+    if let Some(ul) = cell.get_neighbor(&Direction::UpLeft, &cells) {
+        if ul.content == 'M' {
+            if let Some(br) = cell.get_neighbor(&Direction::DownRight, &cells) {
+                return br.content == 'S';
+            } else {
+                return false;
+            }
+        } else if ul.content == 'S' {
+            if let Some(br) = cell.get_neighbor(&Direction::DownRight, &cells) {
+                return br.content == 'M';
+            } else {
+                return false;
+            }
+        }
+    }
+    false
+}
+
+fn has_top_right_to_bottom_left(cell: &Cell, cells: &Cells) -> bool {
+    if let Some(ur) = cell.get_neighbor(&Direction::UpRight, &cells) {
+        if ur.content == 'M' {
+            if let Some(bl) = cell.get_neighbor(&Direction::DownLeft, &cells) {
+                return bl.content == 'S';
+            } else {
+                return false;
+            }
+        } else if ur.content == 'S' {
+            if let Some(bl) = cell.get_neighbor(&Direction::DownLeft, &cells) {
+                return bl.content == 'M';
+            } else {
+                return false;
+            }
+        }
+    }
+    false
+}
+
+fn part_1(cells: &Cells) {
     let mut total_matches = 0;
 
     for cell in cells.all.iter() {
-        if cell.content != 'X' {
+        if cell.content == 'X' {
+            total_matches += cell.match_count("XMAS", &cells);
+        }
+    }
+
+    println!("XMAS total matches: {}", total_matches); // answer: 2370
+}
+
+fn part_2(cells: &Cells) {
+    let mut total_matches = 0;
+
+    for cell in cells.all.iter() {
+        if cell.content != 'A' {
             continue;
         }
 
-        // println!("cell: {:?}", cell);
-
-        let count = cell.match_count("XMAS", &cells);
-
-        // println!("matches: {}", count);
-
-        total_matches += count;
+        if has_top_left_to_bottom_right(&cell, &cells) &&
+            has_top_right_to_bottom_left(&cell, &cells) {
+            total_matches += 1;
+        }
     }
 
-    println!("total matches: {}", total_matches); // answer: 2370
+    println!("X-MAS total matches: {}", total_matches); // answer: 1908
+}
+
+fn main() {
+    let cells = get_cells();
+
+    part_1(&cells);
+    part_2(&cells);
 }
 
 fn get_cells() -> Cells {
