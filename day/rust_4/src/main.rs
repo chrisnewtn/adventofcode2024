@@ -8,6 +8,12 @@ struct Cell {
 }
 
 #[derive(Debug)]
+struct Cells {
+    all: Vec<Cell>,
+    row_len: usize,
+}
+
+#[derive(Debug)]
 struct Coord {
     x: usize,
     y: usize,
@@ -87,18 +93,24 @@ impl Cell {
         }
     }
 
-    pub fn get_neighbor<'a>(&self, direction: &Direction, cells: &'a Vec<Cell>) -> Option<&'a Cell> {
+    pub fn get_neighbor<'a>(&self, direction: &Direction, cells: &'a Cells) -> Option<&'a Cell> {
         if let Some(coord) = self.neighbor_coord(&direction) {
-            for cell in cells.into_iter() {
-                if cell.x == coord.x && cell.y == coord.y {
-                    return Some(cell);
-                }
+            let cell_index = coord.y * cells.row_len + coord.x;
+
+            if cell_index >= cells.all.len() {
+                return None;
+            }
+
+            let cell = &cells.all[cell_index];
+
+            if cell.x == coord.x && cell.y == coord.y {
+                return Some(cell);
             }
         }
         None
     }
 
-    pub fn has_word<'a>(&self, word: &str, direction: &Direction, cells: &'a Vec<Cell>) -> bool {
+    pub fn has_word<'a>(&self, word: &str, direction: &Direction, cells: &'a Cells) -> bool {
         if let Some(first_char) = word.chars().nth(0) {
             if first_char != self.content {
                 return false;
@@ -118,7 +130,7 @@ impl Cell {
         word_from_cells(word_cells) == word
     }
 
-    pub fn match_count(&self, word: &str, cells: &Vec<Cell>) -> usize {
+    pub fn match_count(&self, word: &str, cells: &Cells) -> usize {
         let mut count: usize = 0;
 
         for direction in Direction::iterator() {
@@ -145,7 +157,7 @@ fn main() {
     let cells = get_cells();
     let mut total_matches = 0;
 
-    for cell in cells.iter() {
+    for cell in cells.all.iter() {
         if cell.content != 'X' {
             continue;
         }
@@ -159,11 +171,12 @@ fn main() {
         total_matches += count;
     }
 
-    println!("total matches: {}", total_matches);
+    println!("total matches: {}", total_matches); // answer: 2370
 }
 
-fn get_cells() -> Vec<Cell> {
+fn get_cells() -> Cells {
     let mut cells: Vec<Cell> = Vec::new();
+    let mut line_len: usize = 0;
 
     if let Ok(lines) = read_lines("./input") {
         for (y, line_result) in lines.enumerate() {
@@ -171,11 +184,17 @@ fn get_cells() -> Vec<Cell> {
                 for (x, content) in line.chars().enumerate() {
                     cells.push(Cell {x, y, content});
                 }
+                if line_len == 0 {
+                    line_len = line.len();
+                }
             }
         }
     }
 
-    cells
+    Cells {
+        all: cells,
+        row_len: line_len,
+    }
 }
 
 // The output is wrapped in a Result to allow matching on errors.
