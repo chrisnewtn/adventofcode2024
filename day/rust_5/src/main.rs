@@ -57,8 +57,11 @@ where P: AsRef<Path>, {
     Ok(io::BufReader::new(file).lines())
 }
 
-fn part1(rules: &PageRules, updates: &mut Vec<Vec<usize>>) {
-    let mut total_of_middles = 0;
+fn main() {
+    let (rules, mut updates) = parse_input();
+
+    let mut already_ordered_middles = 0;
+    let mut fixed_middles = 0;
 
     for update in updates.iter_mut() {
         let unsorted = update.clone();
@@ -72,16 +75,15 @@ fn part1(rules: &PageRules, updates: &mut Vec<Vec<usize>>) {
             Ordering::Equal
         });
 
+        let middle = update.get(update.len() / 2).unwrap();
+
         if unsorted.eq(update) {
-            total_of_middles += update.get(update.len() / 2).unwrap();
+            already_ordered_middles += middle;
+        } else {
+            fixed_middles += middle;
         }
     }
 
-    println!("total of middles: {}", total_of_middles); // answer 5964
-}
-
-fn main() {
-    let (rules, mut updates) = parse_input();
-
-    part1(&rules, &mut updates);
+    println!("already ordered middles: {}", already_ordered_middles); // part 1 answer: 5964
+    println!("          fixed middles: {}", fixed_middles); // part 2 answer: 4719
 }
