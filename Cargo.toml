@@ -4,5 +4,5 @@ resolver = "2"
 
 members = [
     "day/rust_4",
-    "day/rust_5",
+    "day/rust_5", "day/rust_6",
 ]
