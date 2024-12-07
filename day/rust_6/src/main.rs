@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{cell::RefCell, fs::File, io::{self, BufRead}, ops::Deref, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, fs::File, io::{self, BufRead}, ops::Deref, path::Path, rc::Rc};
 use uuid::Uuid;
 
 // The output is wrapped in a Result to allow matching on errors.
@@ -69,12 +69,15 @@ struct Coord {
 struct GridTile {
     pub id: Uuid,
     pub kind: RefCell<TileKind>,
-    pub visited: RefCell<bool>,
+    pub visited: RefCell<HashSet<Direction>>,
 }
 
 impl GridTile {
     pub fn new(kind: TileKind) -> Self {
-        let visited = kind.is_guard();
+        let visited = match &kind {
+            TileKind::Guard(direction) => HashSet::from([direction.clone()]),
+            _ => HashSet::new(),
+        };
 
         Self {
             id: Uuid::new_v4(),
@@ -83,15 +86,21 @@ impl GridTile {
         }
     }
 
-    pub fn set_visited(&self, visited: bool) {
-        self.visited.replace(visited);
+    pub fn set_visited(&self, direction: Direction) {
+        self.visited.borrow_mut().insert(direction);
+    }
+
+    pub fn get_visited(&self) -> bool {
+        !self.visited.borrow().is_empty()
     }
 
     pub fn turn_right(&self) {
         let kind = RefCell::clone(&self.kind);
 
         if let TileKind::Guard(direction) = kind.borrow().deref() {
-            self.kind.replace(TileKind::Guard(Direction::turn_right(&direction)));
+            let new_direction = Direction::turn_right(&direction);
+            self.set_visited(new_direction.clone());
+            self.kind.replace(TileKind::Guard(new_direction));
         };
     }
 }
@@ -100,8 +109,17 @@ impl fmt::Display for GridTile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self.kind.borrow() {
             TileKind::Empty => {
-                if *self.visited.borrow() {
-                    write!(f, "X")
+                let v = self.visited.borrow();
+
+                let up_or_down = v.contains(&Direction::Up) || v.contains(&Direction::Down);
+                let left_or_right = v.contains(&Direction::Left) || v.contains(&Direction::Right);
+
+                if up_or_down && left_or_right {
+                    write!(f, "+")
+                } else if up_or_down {
+                    write!(f, "|")
+                } else if left_or_right {
+                    write!(f, "-")
                 } else {
                     write!(f, ".")
                 }
@@ -143,6 +161,12 @@ enum MovementResult {
     Obstructed,
 }
 
+enum Neighbor<T> {
+    Ok(T),
+    NoNeighbor,
+    Obstructed,
+}
+
 impl Grid {
     pub fn from_file(path: &str) -> Self {
         let mut tiles = Vec::new();
@@ -177,7 +201,7 @@ impl Grid {
         None
     }
 
-    fn get_neighbor(&self, tile: &Rc<GridTile>, direction: &Direction) -> Option<(usize, Rc<GridTile>)> {
+    fn get_unobstructed_neighbor(&self, tile: &Rc<GridTile>, direction: &Direction) -> Neighbor<Rc<GridTile>> {
         let coord = self.get_tile_coord(&tile);
 
         let tile_index = match direction {
@@ -188,9 +212,15 @@ impl Grid {
         };
 
         if tile_index > 0 && tile_index < self.tiles.borrow().len() {
-            Some((tile_index, Rc::clone(&self.tiles.borrow()[tile_index])))
+            let neighbor = Rc::clone(&self.tiles.borrow()[tile_index]);
+
+            if *neighbor.kind.borrow() == TileKind::Obstacle {
+                Neighbor::Obstructed
+            } else {
+                Neighbor::Ok(neighbor)
+            }
         } else {
-            None
+            Neighbor::NoNeighbor
         }
     }
 
@@ -208,22 +238,18 @@ impl Grid {
     }
 
     pub fn move_tile(&self, tile: Rc<GridTile>) -> MovementResult {
-        let tile_i = self.get_tile_index(&tile);
-        let kind = tile.kind.borrow();
+        let binding = RefCell::clone(&tile.kind);
+        let kind = binding.borrow();
 
         if let TileKind::Guard(direction) = kind.deref() {
-            if let Some((neighbour_i, neighbor)) = self.get_neighbor(&tile, &direction) {
-                if *neighbor.kind.borrow() == TileKind::Obstacle {
-                    return MovementResult::Obstructed;
+            match self.get_unobstructed_neighbor(&tile, &direction) {
+                Neighbor::Ok(neighbor) => {
+                    Rc::clone(&neighbor).set_visited(direction.clone());
+                    tile.kind.swap(&neighbor.kind);
+                    MovementResult::Ok
                 }
-
-                neighbor.set_visited(true);
-
-                self.tiles.borrow_mut().swap(tile_i, neighbour_i);
-
-                MovementResult::Ok
-            } else {
-                MovementResult::NoNeighbor
+                Neighbor::NoNeighbor => MovementResult::NoNeighbor,
+                Neighbor::Obstructed => MovementResult::Obstructed,
             }
         } else {
             MovementResult::TileIsNotGuard
@@ -250,8 +276,11 @@ fn main() {
     println!("{}\n", grid);
 
     let visited = grid.tiles.borrow().iter()
-        .filter(|t| *t.visited.borrow())
+        .filter(|t| t.get_visited())
         .collect::<Vec<_>>().len();
 
     println!("visited locations: {}", visited); // answer 5404
+
+
+    // println!("test: {:?}", grid.tiles.borrow().get((10 * 9) + 7).unwrap())
 }
