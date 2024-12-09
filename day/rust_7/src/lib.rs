@@ -1,9 +1,10 @@
 use std::{num::ParseIntError, str::FromStr};
 
 #[derive(PartialEq, Clone, Debug)]
-enum MathOperator {
+pub enum MathOperator {
     Add,
-    Multiply
+    Multiply,
+    Concat,
 }
 
 impl MathOperator {
@@ -11,6 +12,7 @@ impl MathOperator {
         match i {
             0 => Some(MathOperator::Add),
             1 => Some(MathOperator::Multiply),
+            2 => Some(MathOperator::Concat),
             _ => None,
         }
     }
@@ -20,6 +22,7 @@ fn operate(left: u64, operator: &MathOperator, right: u64) -> u64 {
     match operator {
         MathOperator::Add => left + right,
         MathOperator::Multiply => left * right,
+        MathOperator::Concat => (left.to_string() + &right.to_string()).parse().unwrap()
     }
 }
 
@@ -36,13 +39,13 @@ fn add_one(digits: &mut Vec<usize>, radix: usize) -> bool {
     false
 }
 
-fn combination_grid(width: usize) -> Vec<Vec<usize>> {
+fn combination_grid(width: usize, radix: usize) -> Vec<Vec<usize>> {
     let mut combinations = vec![vec![0; width]];
 
     loop {
         let mut row = combinations.last().unwrap().clone();
 
-        if add_one(&mut row, 2) {
+        if add_one(&mut row, radix) {
             combinations.push(row);
         } else {
             break;
@@ -67,13 +70,13 @@ pub struct Equation {
 }
 
 impl Equation {
-    pub fn solvable(&self) -> bool {
-        let operators: Vec<Vec<MathOperator>> = combination_grid(self.numbers.len() - 1)
+    pub fn solvable(&self, operators: &Vec<MathOperator>) -> bool {
+        let operator_combos: Vec<Vec<MathOperator>> = combination_grid(self.numbers.len() - 1, operators.len())
             .iter()
             .map(|row| row.iter().map(|i| MathOperator::from_usize(&i).unwrap()).collect())
             .collect();
 
-        for mut operator_row in operators {
+        for mut operator_row in operator_combos {
             let mut total: Option<u64> = None;
 
             for i in 1..self.numbers.len() {
@@ -132,6 +135,7 @@ impl FromStr for Equation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::MathOperator::{Add, Multiply, Concat};
 
     fn fixture() -> String {
         "190: 10 19
@@ -159,7 +163,14 @@ mod tests {
             numbers: vec![10, 19]
         };
 
-        assert!(equation.solvable());
+        assert!(equation.solvable(&vec![Add, Multiply]));
+
+        let equation = Equation {
+            test_value: 192,
+            numbers: vec![17, 8, 14]
+        };
+
+        assert!(equation.solvable(&vec![Add, Multiply, Concat]));
     }
 
     #[test]
@@ -169,22 +180,46 @@ mod tests {
             numbers: vec![17, 8, 14]
         };
 
-        assert_eq!(equation.solvable(), false);
+        assert_eq!(equation.solvable(&vec![Add, Multiply]), false);
+
+        let equation = Equation {
+            test_value: 161011,
+            numbers: vec![16, 10, 13]
+        };
+
+        assert_eq!(equation.solvable(&vec![Add, Multiply, Concat]), false);
     }
 
     #[test]
-    fn finds_three_solutions_in_the_fixture() {
+    fn finds_three_solutions_in_the_fixture_with_add_and_multiply() {
+        let operators = vec![Add, Multiply];
         let mut solutions = 0;
 
         for line in fixture().lines() {
             if let Ok(equation) = Equation::from_str(line) {
-                if equation.solvable() {
+                if equation.solvable(&operators) {
                     solutions += 1;
                 }
             }
         }
 
         assert_eq!(solutions, 3);
+    }
+
+    #[test]
+    fn finds_six_solutions_in_the_fixture_with_add_multiply_and_concat() {
+        let operators = vec![Add, Multiply, Concat];
+        let mut solutions = 0;
+
+        for line in fixture().lines() {
+            if let Ok(equation) = Equation::from_str(line) {
+                if equation.solvable(&operators) {
+                    solutions += 1;
+                }
+            }
+        }
+
+        assert_eq!(solutions, 6);
     }
 
     #[test]
