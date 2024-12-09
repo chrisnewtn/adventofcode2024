@@ -88,6 +88,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust_7"
+version = "0.1.0"
+
+[[package]]
 name = "uuid"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
