@@ -2,7 +2,7 @@
 
 resolver = "2"
 
-members = [
+members = [ "day/rust_10",
     "day/rust_4",
     "day/rust_5", "day/rust_6", "day/rust_7", "day/rust_9",
 ]
