@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::{HashMap, HashSet}, fmt::{self}, str::FromStr};
+use std::{cmp::Ordering, collections::HashSet, fmt::{self}, str::FromStr};
 
 mod grid;
 
@@ -95,30 +95,46 @@ impl Grid<Trail> {
             .collect()
     }
 
-    fn build_trails(&self, coord: &Coord, trail_map: &mut HashMap<Coord, Vec<Coord>>) {
-        let path_points = self.get_possible_path(coord);
+    fn build_trails(&self, trail_maps: &mut HashSet<Vec<Coord>>) {
+        let trails: Vec<Vec<Coord>> = trail_maps.iter()
+            .map(|t| t.clone())
+            .collect();
 
-        trail_map.insert(coord.clone(), path_points.clone());
+        for trail in trails {
+            let trail_end = trail.last().unwrap();
 
-        for next_coord in path_points {
-            self.build_trails(&next_coord, trail_map);
+            for next_coord in self.get_possible_path(trail_end) {
+                let mut trail_so_far = trail.clone();
+                let mut trail_continued = Vec::new();
+
+                trail_maps.remove(&trail);
+
+                trail_continued.append(&mut trail_so_far);
+                trail_continued.push(next_coord);
+
+                trail_maps.insert(trail_continued);
+
+                self.build_trails(trail_maps);
+            }
         }
     }
 
-    pub fn get_trails_from_coord(&self, coord: &Coord) -> HashMap<Coord, Vec<Coord>> {
-        let mut trail_map = HashMap::new();
+    pub fn get_trails_from_coord(&self, coord: &Coord) -> HashSet<Vec<Coord>> {
+        let mut trail_maps = HashSet::new();
 
-        self.build_trails(coord, &mut trail_map);
+        trail_maps.insert(vec![coord.clone()]);
 
-        trail_map
+        self.build_trails(&mut trail_maps);
+
+        trail_maps
     }
 
     pub fn get_trail_score(&self, coord: &Coord) -> usize {
-        let trail_map = self.get_trails_from_coord(coord);
+        let trail_maps = self.get_trails_from_coord(coord);
 
-        trail_map.iter()
-            .filter(|(_, val)| val.is_empty())
-            .fold(HashSet::new(), |mut ends, (trail_coord, _)| {
+        trail_maps.iter()
+            .filter_map(|trail| trail.last())
+            .fold(HashSet::new(), |mut ends, trail_coord| {
                 if let Some(tile) = self.get_tile_by_coord(trail_coord) {
                     if tile == &Trail::End {
                         ends.insert(trail_coord);
@@ -129,9 +145,30 @@ impl Grid<Trail> {
             .len()
     }
 
+    pub fn get_distinct_trail_score(&self, coord: &Coord) -> usize {
+        let trail_maps = self.get_trails_from_coord(coord);
+
+        trail_maps.iter()
+            .fold(0, |score, trail_map| {
+                if let Some(coord) = trail_map.last() {
+                    if let Some(trail) = self.get_tile_by_coord(coord) {
+                        if trail == &Trail::End {
+                            return score + 1;
+                        }
+                    }
+                }
+                score
+            })
+    }
+
     pub fn total_score(&self) -> usize {
         self.get_trail_head_coords().iter()
-            .fold(0, |score, trail_head| score + self.get_trail_score(trail_head))
+            .fold(0, |score, head| score + self.get_trail_score(head))
+    }
+
+    pub fn total_distinct_score(&self) -> usize {
+        self.get_trail_head_coords().iter()
+            .fold(0, |score, head| score + self.get_distinct_trail_score(head))
     }
 
     pub fn get_possible_path(&self, coord: &Coord) -> Vec<Coord> {
@@ -386,6 +423,72 @@ mod tests {
     }
 
     #[test]
+    fn can_find_all_valid_trails_from_a_trail_end() {
+        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+
+        let mut expected: HashSet<Vec<Coord>> = HashSet::new();
+
+        expected.insert(vec![
+            Coord {x: 6, y: 4},
+            Coord {x: 6, y: 5},
+            Coord {x: 7, y: 5},
+            Coord {x: 7, y: 4},
+            Coord {x: 7, y: 3},
+            Coord {x: 7, y: 2},
+            Coord {x: 6, y: 2},
+            Coord {x: 6, y: 1},
+            Coord {x: 5, y: 1},
+            Coord {x: 5, y: 2},
+        ]);
+
+        expected.insert(vec![
+            Coord {x: 6, y: 4},
+            Coord {x: 6, y: 5},
+            Coord {x: 7, y: 5},
+            Coord {x: 7, y: 4},
+            Coord {x: 7, y: 3},
+            Coord {x: 7, y: 2},
+            Coord {x: 6, y: 2},
+            Coord {x: 6, y: 3},
+            Coord {x: 5, y: 3},
+            Coord {x: 4, y: 3},
+        ]);
+
+        expected.insert(vec![
+            Coord {x: 6, y: 4},
+            Coord {x: 6, y: 5},
+            Coord {x: 7, y: 5},
+            Coord {x: 7, y: 4},
+            Coord {x: 7, y: 3},
+            Coord {x: 7, y: 2},
+            Coord {x: 6, y: 2},
+            Coord {x: 6, y: 3},
+            Coord {x: 5, y: 3},
+            Coord {x: 5, y: 4},
+        ]);
+
+        expected.insert(vec![
+            Coord {x: 6, y: 4},
+            Coord {x: 6, y: 5},
+            Coord {x: 7, y: 5},
+            Coord {x: 7, y: 4},
+            Coord {x: 7, y: 3},
+            Coord {x: 7, y: 2},
+            Coord {x: 6, y: 2},
+            Coord {x: 6, y: 3},
+            Coord {x: 5, y: 3},
+            Coord {x: 5, y: 2},
+        ]);
+
+        let actual = grid.get_trails_from_coord(&Coord {x: 6, y: 4});
+
+        assert_eq!(
+            actual,
+            expected,
+        );
+    }
+
+    #[test]
     fn can_find_the_score_of_a_trail_head() {
         let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
 
@@ -402,6 +505,16 @@ mod tests {
         assert_eq!(
             grid.total_score(),
             36
+        );
+    }
+
+    #[test]
+    fn can_get_the_distinct_total_score_of_the_map() {
+        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+
+        assert_eq!(
+            grid.total_distinct_score(),
+            81
         );
     }
 }

@@ -14,6 +14,12 @@ pub struct Coord {
     pub y: usize,
 }
 
+impl fmt::Display for Coord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(x:{},y:{})", self.x, self.y)
+    }
+}
+
 impl Add for Coord {
     type Output = Self;
 
