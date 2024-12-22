@@ -1,44 +1,8 @@
 use core::fmt;
-use std::{cmp, str::FromStr, sync::{Arc, Mutex}, thread, time::Instant};
+use std::{env, fs, io::{self, BufRead, Write}, path::PathBuf, str::FromStr, time::Instant};
 
-pub struct Stone {
-    number: usize,
-}
-
-impl Stone {
-    pub fn blink(&self) -> (Self, Option<Self>) {
-        if self.number == 0 {
-            return (
-                Self {
-                    number: 1,
-                },
-                None
-            )
-        }
-
-        let number_as_string = self.number.to_string();
-
-        if number_as_string.chars().count() % 2 == 0 {
-            let (left, right) = number_as_string.split_at(number_as_string.len() / 2);
-
-            (
-                Self {
-                    number: left.parse().unwrap(),
-                },
-                Some(Self {
-                    number: right.parse().unwrap(),
-                })
-            )
-        } else {
-            (
-                Self {
-                    number: self.number * 2024,
-                },
-                None
-            )
-        }
-    }
-}
+use indicatif::ProgressBar;
+use uuid::Uuid;
 
 fn blink(number: usize) -> (usize, Option<usize>) {
     if number == 0 {
@@ -52,6 +16,22 @@ fn blink(number: usize) -> (usize, Option<usize>) {
 
         (left.parse().unwrap(), Some(right.parse().unwrap()))
     } else {
+        (number * 2024, None)
+    }
+}
+
+fn blink_string(number: String) -> (usize, Option<usize>) {
+    if number.chars().count() % 2 == 0 {
+        let (left, right) = number.split_at(number.len() / 2);
+
+        return (left.parse().unwrap(), Some(right.parse().unwrap()))
+    }
+
+    let number: usize = number.parse().unwrap();
+
+    if number == 0 {
+        (1, None)
+    }else {
         (number * 2024, None)
     }
 }
@@ -72,133 +52,146 @@ fn blink_stones(stones: &[usize]) -> Vec<usize> {
     new_line
 }
 
-impl fmt::Display for Stone {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.number)
+fn blink_file(input_num_stones: usize, input: &PathBuf, output: &PathBuf) -> Result<usize, std::io::Error> {
+    println!("processing stone dump: {:?}", input);
+
+    let input_stones = fs::File::open(input)?;
+    let reader = io::BufReader::new(input_stones);
+
+    let mut output_stones = fs::File::create(output)?;
+    let mut num_stones = 0;
+
+    let pb = ProgressBar::new(input_num_stones.try_into().unwrap());
+
+    for line in reader.lines() {
+        let (left, right) = blink_string(line?);
+
+        output_stones.write(left.to_string().as_bytes())?;
+        output_stones.write("\n".as_bytes())?;
+        num_stones +=1;
+
+        if let Some(right) = right {
+            output_stones.write(right.to_string().as_bytes())?;
+            output_stones.write("\n".as_bytes())?;
+            num_stones += 1;
+        }
+
+        pb.inc(1);
     }
+
+    pb.finish_with_message(format!("processed {num_stones} stones to dump {:?}", output));
+
+    Ok(num_stones)
+}
+
+fn gen_filename(id: &Uuid, blinks: &usize) -> PathBuf {
+    let mut filename = gen_dirname(id);
+
+    filename.push(blinks.to_string());
+
+    filename
+}
+
+fn gen_dirname(id: &Uuid) -> PathBuf {
+    let mut filename = PathBuf::new();
+
+    filename.push(env::temp_dir());
+    filename.push("adventofcode2024-day-11");
+    filename.push(id.to_string());
+
+    filename
+}
+
+const LOT_OF_STONES: usize = 10_000_000;
+
+enum StoneStorage {
+    Vector(Vec<usize>),
+    File(PathBuf),
 }
 
 pub struct StoneLine {
-    pub stones: Vec<usize>,
+    id: Uuid,
+    stones: StoneStorage,
     pub blinks: usize,
-}
-
-const STONES_PER_THREAD: usize = 5000000;
-
-fn get_number_of_threads(stones: &usize) -> usize {
-    cmp::min((stones / STONES_PER_THREAD) + 1, 4)
+    pub num_stones: usize,
 }
 
 impl StoneLine {
     pub fn blink_all(&mut self) {
-        let num_threads = get_number_of_threads(&self.stones.len());
+        match &mut self.stones {
+            StoneStorage::Vector(stones) => {
+                let blinked_stones = blink_stones(&stones);
 
-        println!("num_threads: {}", num_threads);
+                self.num_stones = blinked_stones.len();
+                self.stones = StoneStorage::Vector(blinked_stones);
+                self.blinks = self.blinks + 1;
+            }
+            StoneStorage::File(old_filename) => {
+                let new_filename = gen_filename(&self.id, &(self.blinks + 1));
 
-        // if num_threads == 1 {
-        //     self.stones = blink_stones(&mut self.stones);
-        //     return;
-        // }
+                if let Ok(num_stones) = blink_file(self.num_stones, old_filename, &new_filename) {
+                    self.num_stones = num_stones;
+                    self.stones = StoneStorage::File(new_filename);
+                    self.blinks = self.blinks + 1;
+                }
+            }
+        }
+    }
 
-        let new_line = Arc::new(Mutex::new(Vec::<usize>::new()));
+    fn dump_stones_to_disk(&mut self) -> Result<PathBuf, std::io::Error> {
+        let stones: &mut Vec<usize> = match &mut self.stones {
+            StoneStorage::Vector(v) => v,
+            StoneStorage::File(f) => return Ok(f.clone()),
+        };
 
-        let stones: Vec<usize> = self.stones.drain(..).collect();
+        fs::create_dir_all(gen_dirname(&self.id))?;
 
-        let handles = stones.chunks(num_threads).map(|chunk| {
-            let nl = Arc::clone(&new_line);
-            // let mut to_send = Vec::from(chunk);
-            let to_send = Arc::new(chunk);
+        let filename = gen_filename(&self.id, &self.blinks);
 
-            thread::spawn(move || {
-                let mut new_line_chunk = blink_stones(&to_send);
+        println!("dumping {} stones to {:?}", stones.len(), filename);
 
-                let mut nl = nl.lock().unwrap();
+        let mut file = fs::File::create(filename.clone())?;
 
-                nl.append(&mut new_line_chunk);
-            })
-        });
+        stones.reverse();
 
-        for handle in handles {
-            handle.join().unwrap();
+        while let Some(stone) = stones.pop() {
+            file.write(format!("{}\n", stone).as_bytes())?;
         }
 
-        self.stones = (*new_line.lock().unwrap().clone()).to_vec();
+        self.stones = StoneStorage::File(filename.clone());
 
-        // let mut inserts: Vec<(usize, usize)> = Vec::new();
-        //
-        // for i in 0..self.stones.len() {
-        //     let (left, right) = blink(&self.stones[i]);
-        //
-        //     self.stones[i] = left;
-        //
-        //     if let Some(right) = right {
-        //         inserts.push((i + 1, right));
-        //     }
-        // }
-        //
-        // for insert_i in 0..inserts.len() {
-        //     let (stone_i, stone) = inserts[insert_i];
-        //     self.stones.insert(stone_i + insert_i, stone);
-        // }
-
-//         let mut new_line: Vec<usize> = Vec::with_capacity(self.stones.capacity());
-//
-//         for stone in self.stones.iter() {
-//             let (left, right) = blink(*stone);
-//
-//             new_line.push(left);
-//
-//             if let Some(right) = right {
-//                 new_line.push(right);
-//             }
-//         }
-//
-//         self.stones = new_line;
-
-        // self.stones = self.stones.iter().flat_map(|stone| {
-        //         let (left, right) = blink(stone);
-        //
-        //         if let Some(right) = right {
-        //             vec![left, right]
-        //         } else {
-        //             vec![left]
-        //         }
-        //     })
-        //     .collect()
-
-        // let mut new_line: VecDeque<usize> = VecDeque::with_capacity(self.stones.capacity());
-        //
-        // while let Some(stone) = self.stones.pop_front() {
-        //     let (left, right) = blink(stone);
-        //
-        //     new_line.push_back(left);
-        //
-        //     if let Some(right) = right {
-        //         new_line.push_back(right);
-        //     }
-        // }
-        //
-        // self.stones = new_line;
+        Ok(filename)
     }
 
     pub fn blink_all_times(&mut self, times: usize) {
         for _ in 0..times {
             let now = Instant::now();
             self.blink_all();
-            self.blinks = self.blinks + 1;
             let elapsed = now.elapsed();
-            println!("{} stones after {} blink(s) in {:.2?}", self.stones.len(), self.blinks, elapsed);
+
+            println!("{} stones after {} blink(s) in {:.2?}", self.num_stones, self.blinks, elapsed);
+
+            if self.num_stones > LOT_OF_STONES {
+                if let Err(err) = self.dump_stones_to_disk() {
+                    panic!("{}", err);
+                }
+            }
         }
     }
 }
 
 impl fmt::Display for StoneLine {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let string: String = self.stones.iter()
-            .map(|s| format!("{} ", s))
-            .collect();
+        match &self.stones {
+            StoneStorage::Vector(stones) => {
+                let string: String = stones.iter().map(|s| format!("{} ", s)).collect();
+                write!(f, "{}", string.trim())
+            }
+            StoneStorage::File(path) => {
+                write!(f, "stones stored at: {:?}", path)
+            }
+        }
 
-        write!(f, "{}", string.trim())
     }
 }
 
@@ -209,13 +202,18 @@ impl FromStr for StoneLine {
     type Err = ParseStoneLineError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let stones = s.split_whitespace()
+        let stones: Vec<usize> = s.split_whitespace()
             .map(|n| n.parse().unwrap())
             .collect();
 
+        let num_stones = stones.len();
+
         Ok(Self {
-            stones,
-            blinks: 0
+            id: Uuid::new_v4(),
+            stones: StoneStorage::Vector(stones),
+            // stone_file: None,
+            blinks: 0,
+            num_stones,
         })
     }
 }
@@ -294,7 +292,7 @@ mod tests {
         stone_line.blink_all_times(25);
 
         assert_eq!(
-            stone_line.stones.len(),
+            stone_line.num_stones,
             55312
         );
     }
