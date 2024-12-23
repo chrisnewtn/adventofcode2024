@@ -1,10 +1,9 @@
-use std::str::FromStr;
-use rust_10::{Grid, Trail};
+use rust_10::TrailGrid;
 
 fn main() {
     let input = include_str!("../input").trim();
 
-    let grid: Grid<Trail> = Grid::from_str(input).unwrap();
+    let grid = TrailGrid::build(input);
 
     println!("part 1 solution: {}", grid.total_score());
 
