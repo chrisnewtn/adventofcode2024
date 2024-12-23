@@ -1,8 +1,6 @@
 use std::{cmp::Ordering, collections::HashSet, fmt::{self}, str::FromStr};
 
-mod grid;
-
-pub use grid::{Grid, Coord, DIRECTIONS};
+use shared::grid::{Grid, Coord};
 
 #[derive(Debug, Eq)]
 #[repr(u8)]
@@ -81,13 +79,18 @@ impl FromStr for Trail {
     }
 }
 
-impl Grid<Trail> {
+pub struct TrailGrid(Grid<Trail>);
+
+impl TrailGrid {
+    pub fn build(map: &str) -> Self {
+        Self(Grid::from_str(map).unwrap())
+    }
     pub fn get_trail_head_coords(&self) -> Vec<Coord> {
-        self.tiles.iter()
+        self.0.tiles.iter()
             .enumerate()
             .filter_map(|(i, t)| {
                 if *t == Trail::Start {
-                    self.index_to_coord(i)
+                    self.0.index_to_coord(i)
                 } else {
                     None
                 }
@@ -135,7 +138,7 @@ impl Grid<Trail> {
         trail_maps.iter()
             .filter_map(|trail| trail.last())
             .fold(HashSet::new(), |mut ends, trail_coord| {
-                if let Some(tile) = self.get_tile_by_coord(trail_coord) {
+                if let Some(tile) = self.0.get_tile_by_coord(trail_coord) {
                     if tile == &Trail::End {
                         ends.insert(trail_coord);
                     }
@@ -151,7 +154,7 @@ impl Grid<Trail> {
         trail_maps.iter()
             .fold(0, |score, trail_map| {
                 if let Some(coord) = trail_map.last() {
-                    if let Some(trail) = self.get_tile_by_coord(coord) {
+                    if let Some(trail) = self.0.get_tile_by_coord(coord) {
                         if trail == &Trail::End {
                             return score + 1;
                         }
@@ -172,7 +175,7 @@ impl Grid<Trail> {
     }
 
     pub fn get_possible_path(&self, coord: &Coord) -> Vec<Coord> {
-        let tile = self.get_tile_by_coord(coord);
+        let tile = self.0.get_tile_by_coord(coord);
 
         if tile.is_none() {
             return vec![];
@@ -186,10 +189,10 @@ impl Grid<Trail> {
 
         let elevation = tile.elevation();
 
-        self.get_neighbor_coords(coord)
+        self.0.get_neighbor_coords(coord)
             .iter()
             .filter_map(|neighbor| {
-                let neighbor_tile = self.get_tile_by_coord(neighbor).unwrap();
+                let neighbor_tile = self.0.get_tile_by_coord(neighbor).unwrap();
                 let neighbor_elevation = neighbor_tile.elevation();
 
                 if neighbor_elevation <= elevation {
@@ -206,7 +209,7 @@ impl Grid<Trail> {
 
 #[cfg(test)]
 mod tests {
-    use grid::Direction;
+    use shared::grid::Direction;
 
     use super::*;
 
@@ -223,10 +226,10 @@ mod tests {
 
     #[test]
     fn maintains_its_string_representation() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
-            grid.to_string(),
+            grid.0.to_string(),
             fixture()
         );
     }
@@ -290,7 +293,7 @@ mod tests {
 
     #[test]
     fn can_list_all_trail_heads() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
             grid.get_trail_head_coords(),
@@ -310,7 +313,7 @@ mod tests {
 
     #[test]
     fn can_list_all_adjacent_passable_coords() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
             grid.get_possible_path(
@@ -424,7 +427,7 @@ mod tests {
 
     #[test]
     fn can_find_all_valid_trails_from_a_trail_end() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         let mut expected: HashSet<Vec<Coord>> = HashSet::new();
 
@@ -490,7 +493,7 @@ mod tests {
 
     #[test]
     fn can_find_the_score_of_a_trail_head() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
             grid.get_trail_score(&Coord {x: 6, y: 4}),
@@ -500,7 +503,7 @@ mod tests {
 
     #[test]
     fn can_get_the_total_score_of_the_map() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
             grid.total_score(),
@@ -510,7 +513,7 @@ mod tests {
 
     #[test]
     fn can_get_the_distinct_total_score_of_the_map() {
-        let grid: Grid<Trail> = Grid::from_str(&fixture()).unwrap();
+        let grid = TrailGrid::build(&fixture());
 
         assert_eq!(
             grid.total_distinct_score(),
