@@ -20,19 +20,11 @@ fn blink(number: usize) -> (usize, Option<usize>) {
     }
 }
 
-fn blink_string(number: String) -> (usize, Option<usize>) {
+fn split_blink(number: &str) -> Option<(&str, &str)> {
     if number.chars().count() % 2 == 0 {
-        let (left, right) = number.split_at(number.len() / 2);
-
-        return (left.parse().unwrap(), Some(right.parse().unwrap()))
-    }
-
-    let number: usize = number.parse().unwrap();
-
-    if number == 0 {
-        (1, None)
-    }else {
-        (number * 2024, None)
+        Some(number.split_at(number.len() / 2))
+    } else {
+        None
     }
 }
 
@@ -57,31 +49,56 @@ fn blink_file(input_num_stones: usize, input: &PathBuf, output: &PathBuf) -> Res
 
     let input_stones = fs::File::open(input)?;
     let reader = io::BufReader::new(input_stones);
-
-    let mut output_stones = fs::File::create(output)?;
-    let mut num_stones = 0;
-
     let pb = ProgressBar::new(input_num_stones.try_into().unwrap());
 
+    let mut output_stones = fs::File::create(output)?;
+    let mut num_input_stones = 0;
+    let mut num_stones_total = 0;
+    let mut num_stones_for_chunk = 0;
+    let mut new_line = String::new();
+
     for line in reader.lines() {
-        let (left, right) = blink_string(line?);
+        let line = line?;
+        let stones = line.split_whitespace();
 
-        output_stones.write(left.to_string().as_bytes())?;
-        output_stones.write("\n".as_bytes())?;
-        num_stones +=1;
+        for stone in stones {
+            num_input_stones += 1;
 
-        if let Some(right) = right {
-            output_stones.write(right.to_string().as_bytes())?;
-            output_stones.write("\n".as_bytes())?;
-            num_stones += 1;
+            if let Some((left, right)) = split_blink(stone) {
+                new_line.push_str(&format!(" {left} {right}"));
+                num_stones_for_chunk += 2;
+            } else {
+                let number: usize = stone.parse().unwrap();
+
+                if number == 0 {
+                    new_line.push_str(" 1");
+                } else {
+                    new_line.push_str(&format!(" {}", number * 2024));
+                }
+
+                num_stones_for_chunk += 1;
+            }
+
+            if num_stones_for_chunk >= STONE_CHUNK_LENGTH {
+                output_stones.write(format!("{}\n", new_line.trim_start()).as_bytes())?;
+                new_line.clear();
+                num_stones_total += num_stones_for_chunk;
+                pb.inc(num_input_stones);
+                num_stones_for_chunk = 0;
+                num_input_stones = 0;
+            }
         }
-
-        pb.inc(1);
     }
 
-    pb.finish_with_message(format!("processed {num_stones} stones to dump {:?}", output));
+    if num_stones_for_chunk > 0 {
+        output_stones.write(format!("{}\n", new_line.trim()).as_bytes())?;
+        new_line.clear();
+        pb.inc(num_input_stones);
+    }
 
-    Ok(num_stones)
+    pb.finish_with_message(format!("processed {num_stones_total} stones to dump {:?}", output));
+
+    Ok(num_stones_total)
 }
 
 fn gen_filename(id: &Uuid, blinks: &usize) -> PathBuf {
@@ -103,6 +120,7 @@ fn gen_dirname(id: &Uuid) -> PathBuf {
 }
 
 const LOT_OF_STONES: usize = 10_000_000;
+const STONE_CHUNK_LENGTH: usize = 100_000;
 
 enum StoneStorage {
     Vector(Vec<usize>),
@@ -129,10 +147,15 @@ impl StoneLine {
             StoneStorage::File(old_filename) => {
                 let new_filename = gen_filename(&self.id, &(self.blinks + 1));
 
-                if let Ok(num_stones) = blink_file(self.num_stones, old_filename, &new_filename) {
-                    self.num_stones = num_stones;
-                    self.stones = StoneStorage::File(new_filename);
-                    self.blinks = self.blinks + 1;
+                match blink_file(self.num_stones, old_filename, &new_filename) {
+                    Ok(num_stones) => {
+                        self.num_stones = num_stones;
+                        self.stones = StoneStorage::File(new_filename);
+                        self.blinks = self.blinks + 1;
+                    }
+                    Err(err) => {
+                        panic!("{}", err);
+                    }
                 }
             }
         }
@@ -152,10 +175,9 @@ impl StoneLine {
 
         let mut file = fs::File::create(filename.clone())?;
 
-        stones.reverse();
-
-        while let Some(stone) = stones.pop() {
-            file.write(format!("{}\n", stone).as_bytes())?;
+        for chunk in stones.chunks(STONE_CHUNK_LENGTH) {
+            let chunk = chunk.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+            file.write(format!("{}\n", chunk.join(" ")).as_bytes())?;
         }
 
         self.stones = StoneStorage::File(filename.clone());
@@ -211,7 +233,6 @@ impl FromStr for StoneLine {
         Ok(Self {
             id: Uuid::new_v4(),
             stones: StoneStorage::Vector(stones),
-            // stone_file: None,
             blinks: 0,
             num_stones,
         })
