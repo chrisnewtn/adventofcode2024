@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, collections::HashSet, fmt::{self}, str::FromStr};
 
-use shared::grid::{Grid, Coord};
+use shared::{coord::Coord, grid::Grid};
 
 #[derive(Debug, Eq)]
 #[repr(u8)]
@@ -209,7 +209,7 @@ impl TrailGrid {
 
 #[cfg(test)]
 mod tests {
-    use shared::grid::Direction;
+    use shared::direction::Direction;
 
     use super::*;
 
