@@ -1,5 +1,7 @@
 use core::fmt;
-use std::{ops::{Add, Sub}, str::FromStr};
+use std::{cmp::PartialEq, collections::HashSet, str::FromStr};
+
+use crate::{coord::Coord, direction::{Direction, DIRECTIONS}};
 
 #[derive(Debug)]
 pub struct Grid<T: fmt::Display> {
@@ -7,68 +9,6 @@ pub struct Grid<T: fmt::Display> {
     row_len: usize,
     col_len: usize,
 }
-
-#[derive(PartialEq, Eq, Debug, Clone, Hash)]
-pub struct Coord {
-    pub x: usize,
-    pub y: usize,
-}
-
-impl fmt::Display for Coord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(x:{},y:{})", self.x, self.y)
-    }
-}
-
-impl Add for Coord {
-    type Output = Self;
-
-    fn add(self, other: Self) -> Self::Output {
-        Self {
-            x: self.x + other.x,
-            y: self.y + other.y,
-        }
-    }
-}
-
-impl Sub for Coord {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self::Output {
-        Self {
-            x: self.x - other.x,
-            y: self.y - other.y,
-        }
-    }
-}
-
-impl Add<Direction> for Coord {
-    type Output = Self;
-
-    fn add(self, direction: Direction) -> Self::Output {
-        match direction {
-            Direction::North => self - Self { y: 1, x: 0 },
-            Direction::East => self + Self { y: 0, x: 1},
-            Direction::South => self + Self { y: 1, x: 0},
-            Direction::West => self - Self { y: 0, x: 1 },
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum Direction {
-    North,
-    East,
-    South,
-    West,
-}
-
-pub const DIRECTIONS: [Direction; 4] = [
-    Direction::North,
-    Direction::East,
-    Direction::South,
-    Direction::West
-];
 
 impl<T: fmt::Display> Grid<T> {
     fn validate_coord(&self, coord: &Coord) -> bool {
@@ -124,6 +64,48 @@ impl<T: fmt::Display> Grid<T> {
     }
 }
 
+impl<T: fmt::Display + PartialEq> Grid<T> {
+    fn build_area(&self, coord: &Coord, tile: &T, area: &mut HashSet<Coord>) {
+        for neighbor in self.get_neighbor_coords(coord) {
+            if let Some(nt) = self.get_tile_by_coord(&neighbor) {
+                if nt == tile && !area.contains(&neighbor) {
+                    area.insert(neighbor.clone());
+                    self.build_area(&neighbor, &tile, area);
+                }
+            }
+        }
+    }
+
+    pub fn get_area_from_coord(&self, coord: &Coord) -> HashSet<Coord> {
+        let tile = self.get_tile_by_coord(coord);
+
+        if tile.is_none() {
+            return HashSet::new();
+        }
+
+        let tile = tile.unwrap();
+
+        let mut area: HashSet<Coord> = HashSet::from([coord.clone()]);
+
+        self.build_area(coord, &tile, &mut area);
+
+        area
+    }
+
+    pub fn get_all_coords_of_tile(&self, tile: &T) -> HashSet<Coord> {
+        self.tiles.iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                if t == tile {
+                    self.index_to_coord(i)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 impl<T: fmt::Display> fmt::Display for Grid<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut s = String::new();
@@ -162,5 +144,89 @@ impl<T: FromStr + fmt::Display> FromStr for Grid<T> {
             row_len,
             col_len,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Eq, PartialEq)]
+    struct Tile(char);
+
+    #[derive(Debug)]
+    pub struct ParseTileError;
+
+    impl FromStr for Tile {
+        type Err = ParseTileError;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Ok(Self(s.chars().last().unwrap()))
+        }
+    }
+
+    impl fmt::Display for Tile {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    #[test]
+    fn maintains_its_string_representation() {
+        let grid: Grid<Tile> = Grid::from_str("AAAA\nBBCD\nBBCC\nEEEC").unwrap();
+
+        assert_eq!(
+            grid.to_string(),
+            "AAAA\nBBCD\nBBCC\nEEEC\n"
+        );
+    }
+
+    #[test]
+    fn can_find_a_coords_neighbours_of_the_same_tile() {
+        let grid: Grid<Tile> = Grid::from_str("AAAA\nBBCD\nBBCC\nEEEC").unwrap();
+
+        let tile_a = Coord { x: 0, y: 0 };
+
+        assert_eq!(
+            grid.get_area_from_coord(&tile_a),
+            HashSet::from([
+                tile_a,
+                Coord { x: 1, y: 0 },
+                Coord { x: 2, y: 0 },
+                Coord { x: 3, y: 0 },
+            ])
+        );
+
+        let tile_b = Coord { x: 0, y: 1 };
+
+        assert_eq!(
+            grid.get_area_from_coord(&tile_b),
+            HashSet::from([
+                tile_b,
+                Coord { x: 1, y: 1 },
+                Coord { x: 0, y: 2 },
+                Coord { x: 1, y: 2 },
+            ])
+        );
+
+        let tile_c = Coord { x: 2, y: 1 };
+
+        assert_eq!(
+            grid.get_area_from_coord(&tile_c),
+            HashSet::from([
+                tile_c,
+                Coord { x: 2, y: 2 },
+                Coord { x: 3, y: 2 },
+                Coord { x: 3, y: 3 },
+            ])
+        );
+
+        let tile_d = Coord { x: 3, y: 1 };
+
+        assert_eq!(
+            grid.get_area_from_coord(&tile_d),
+            HashSet::from([
+                tile_d,
+            ])
+        );
     }
 }
